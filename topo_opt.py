@@ -1054,7 +1054,163 @@ class TopologyAnalysis:
                 )
         return np.float64(val)
 
+    def preciseG(self, rho, trace, lam_min, lam1, lam2):
+        with mp.workdps(80):
+            if lam1 == lam2:
+                val = -rho * lam1 * mp.exp(-rho * (lam1 - lam_min)) / trace
+            else:
+                val = (
+                    (
+                        lam1 * mp.exp(-rho * (lam1 - lam_min))
+                        - lam2 * mp.exp(-rho * (lam2 - lam_min))
+                    )
+                    / (mp.mpf(lam1) - mp.mpf(lam2))
+                    / mp.mpf(trace)
+                )
+        return np.float64(val)
+
     @time_this
+
+    # def eigenvector_displacement_deriv(self, x, ks_rho=100.0):
+    #     """
+    #     Approximately compute the forward derivative
+    #     """
+
+    #     # Compute the filtered variables
+    #     rho = self.fltr.apply(x)
+
+    #     N = len(self.eigs)
+    #     c = np.min(self.eigs)
+    #     eta = np.exp(-ks_rho * (self.eigs - c))
+    #     a = np.sum(eta)
+    #     eta = eta / a
+
+    #     # Compute the h values
+    #     h = 0.0
+    #     for i in range(N):
+    #         q = self.Q[self.D_index, i]
+    #         h += eta[i] * np.dot(q, q)
+
+    #     # Set the value of the derivative
+    #     dfdrho = np.zeros(self.nnodes)
+
+    #     for j in range(N):
+    #         for i in range(j + 1):
+    #             qDq = np.dot(self.Q[self.D_index, i], self.Q[self.D_index, j])
+    #             scalar = qDq
+    #             if i == j:
+    #                 scalar = qDq - h
+
+    #             Eij = scalar * self.precise(ks_rho, a, c, self.eigs[i], self.eigs[j])
+
+    #             if i == j:
+    #                 # Add to dfdx from A
+    #                 dfdrho += Eij * self.stiffness_matrix_derivative(
+    #                     rho, self.Q[:, i], self.Q[:, j]
+    #                 )
+
+    #                 # Add to dfdx from B
+    #                 dfdrho -= (
+    #                     Eij
+    #                     * self.eigs[i]
+    #                     * self.mass_matrix_derivative(rho, self.Q[:, i], self.Q[:, j])
+    #                 )
+    #             else:
+    #                 # Add to dfdx from A
+    #                 dfdrho += (
+    #                     2.0
+    #                     * Eij
+    #                     * self.stiffness_matrix_derivative(
+    #                         rho, self.Q[:, i], self.Q[:, j]
+    #                     )
+    #                 )
+
+    #                 # Add to dfdx from B
+    #                 dfdrho -= (
+    #                     Eij
+    #                     * (self.eigs[i] + self.eigs[j])
+    #                     * self.mass_matrix_derivative(rho, self.Q[:, i], self.Q[:, j])
+    #                 )
+
+    #     # Get the stiffness and mass matrices
+    #     A = self.assemble_stiffness_matrix(rho)
+    #     B = self.assemble_mass_matrix(rho)
+
+    #     Ar = self.reduce_matrix(A)
+    #     Br = self.reduce_matrix(B)
+    #     C = B.dot(self.Q)
+
+    #     nr = len(self.reduced)
+    #     Cr = np.zeros((nr, N))
+    #     for k in range(N):
+    #         Cr[:, k] = self.reduce_vector(C[:, k])
+    #     Ur, R = np.linalg.qr(Cr)
+
+    #     # Factorize the mass matrix
+    #     Br = Br.tocsc()
+    #     Bfact = linalg.factorized(Br)
+
+    #     # Form a full factorization for the preconditioner
+    #     factor = 0.99  # Should always be < 1 to ensure P is positive definite.
+    #     # Make this a parameter we can set??
+    #     P = Ar - factor * self.eigs[0] * Br
+    #     P = P.tocsc()
+    #     Pfactor = linalg.factorized(P)
+
+    #     def preconditioner(x):
+    #         y = Pfactor(x)
+    #         t = np.dot(Ur.T, y)
+    #         y = y - np.dot(Ur, t)
+    #         return y
+
+    #     preop = linalg.LinearOperator((nr, nr), preconditioner)
+
+    #     # Form the augmented linear system of equations
+    #     for k in range(N):
+    #         # Compute B * uk = D * qk
+    #         bk = np.zeros(self.nvars)
+    #         bk[self.D_index] = self.Q[self.D_index, k]
+    #         bkr = -eta[k] * self.reduce_vector(bk)
+
+    #         ukr = Bfact(bkr)
+    #         uk = self.full_vector(ukr)
+    #         dfdrho += self.mass_matrix_derivative(rho, self.Q[:, k], uk)
+
+    #         # Form the matrix
+    #         def matrix(x):
+    #             y = Ar.dot(x) - self.eigs[k] * Br.dot(x)
+    #             t = np.dot(Ur.T, y)
+    #             y = y - np.dot(Ur, t)
+    #             return y
+
+    #         matop = linalg.LinearOperator((nr, nr), matrix)
+
+    #         # Solve the augmented system of equations for vk
+    #         t = np.dot(Ur.T, bkr)
+    #         bkr = bkr - np.dot(Ur, t)
+    #         vkr, info = linalg.gmres(matop, bkr, M=preop, atol=1e-15, tol=1e-10)
+    #         vk = self.full_vector(vkr)
+
+    #         # Compute the contributions from the derivative from Adot
+    #         dfdrho += 2.0 * self.stiffness_matrix_derivative(rho, self.Q[:, k], vk)
+
+    #         # Add the contributions to the derivative from Bdot here...
+    #         dfdrho -= self.eigs[k] * self.mass_matrix_derivative(rho, self.Q[:, k], vk)
+
+    #         # Now, compute the remaining contributions to the derivative from
+    #         # B by solving the second auxiliary system
+    #         dkr = Ar.dot(ukr)
+
+    #         t = np.dot(Ur.T, dkr)
+    #         dkr = dkr - np.dot(Ur, t)
+    #         wkr, info = linalg.gmres(matop, dkr, M=preop, atol=1e-15, tol=1e-10)
+    #         wk = self.full_vector(wkr)
+
+    #         # Compute the contributions from the derivative
+    #         dfdrho -= self.mass_matrix_derivative(rho, self.Q[:, k], wk)
+
+    #     return self.fltr.applyGradient(dfdrho, x)
+
     def eigenvector_displacement_deriv(self, x, ks_rho=100.0):
         """
         Approximately compute the forward derivative
@@ -1086,6 +1242,16 @@ class TopologyAnalysis:
                     scalar = qDq - h
 
                 Eij = scalar * self.precise(ks_rho, a, c, self.eigs[i], self.eigs[j])
+                Gij = scalar * self.preciseG(ks_rho, a, c, self.eigs[i], self.eigs[j])
+
+                # if i == j:
+                #     Gij = -scalar * ks_rho * eta[i] * self.eigs[i]
+                # else:
+                #     Gij = (
+                #         scalar
+                #         * (eta[i] * self.eigs[i] - eta[j] * self.eigs[j])
+                #         / (self.eigs[i] - self.eigs[j])
+                #     )
 
                 if i == j:
                     # Add to dfdx from A
@@ -1094,10 +1260,8 @@ class TopologyAnalysis:
                     )
 
                     # Add to dfdx from B
-                    dfdrho -= (
-                        Eij
-                        * self.eigs[i]
-                        * self.mass_matrix_derivative(rho, self.Q[:, i], self.Q[:, j])
+                    dfdrho -= Gij * self.mass_matrix_derivative(
+                        rho, self.Q[:, i], self.Q[:, j]
                     )
                 else:
                     # Add to dfdx from A
@@ -1110,9 +1274,10 @@ class TopologyAnalysis:
                     )
 
                     # Add to dfdx from B
+                    # Gij = Gji
                     dfdrho -= (
-                        Eij
-                        * (self.eigs[i] + self.eigs[j])
+                        2.0
+                        * Gij
                         * self.mass_matrix_derivative(rho, self.Q[:, i], self.Q[:, j])
                     )
 
@@ -1151,14 +1316,9 @@ class TopologyAnalysis:
 
         # Form the augmented linear system of equations
         for k in range(N):
-            # Compute B * uk = D * qk
             bk = np.zeros(self.nvars)
             bk[self.D_index] = self.Q[self.D_index, k]
-            bkr = -eta[k] * self.reduce_vector(bk)
-
-            ukr = Bfact(bkr)
-            uk = self.full_vector(ukr)
-            dfdrho += self.mass_matrix_derivative(rho, self.Q[:, k], uk)
+            bkr = -2 * eta[k] * self.reduce_vector(bk)
 
             # Form the matrix
             def matrix(x):
@@ -1172,26 +1332,17 @@ class TopologyAnalysis:
             # Solve the augmented system of equations for vk
             t = np.dot(Ur.T, bkr)
             bkr = bkr - np.dot(Ur, t)
-            vkr, info = linalg.gmres(matop, bkr, M=preop, atol=1e-15, tol=1e-10)
-            vk = self.full_vector(vkr)
+            phir, info = linalg.gmres(matop, bkr, M=preop, atol=1e-15, tol=1e-10)
+            phi = self.full_vector(phir)
 
             # Compute the contributions from the derivative from Adot
-            dfdrho += 2.0 * self.stiffness_matrix_derivative(rho, self.Q[:, k], vk)
+            dfdrho += self.stiffness_matrix_derivative(rho, self.Q[:, k], phi)
 
             # Add the contributions to the derivative from Bdot here...
-            dfdrho -= self.eigs[k] * self.mass_matrix_derivative(rho, self.Q[:, k], vk)
-
-            # Now, compute the remaining contributions to the derivative from
-            # B by solving the second auxiliary system
-            dkr = Ar.dot(ukr)
-
-            t = np.dot(Ur.T, dkr)
-            dkr = dkr - np.dot(Ur, t)
-            wkr, info = linalg.gmres(matop, dkr, M=preop, atol=1e-15, tol=1e-10)
-            wk = self.full_vector(wkr)
-
-            # Compute the contributions from the derivative
-            dfdrho -= self.mass_matrix_derivative(rho, self.Q[:, k], wk)
+            qDq = np.dot(self.Q[self.D_index, k], self.Q[self.D_index, k])
+            alpha = -2.0 * eta[k] * qDq
+            phi = 0.5 * alpha * self.Q[:, k] - self.eigs[k] * phi
+            dfdrho += self.mass_matrix_derivative(rho, self.Q[:, k], phi)
 
         return self.fltr.applyGradient(dfdrho, x)
 
@@ -2976,10 +3127,10 @@ def create_folder(args):
             if args.vol_frac_ub != 0.4:
                 v = f"{args.vol_frac_ub:.1f}"
                 args.prefix = args.prefix + ", v=" + v
-        elif args.domain == "beam":
-            if args.vol_frac_ub != 0.5:
-                v = f"{args.vol_frac_ub:.1f}"
-                args.prefix = args.prefix + ", v=" + v
+        # elif args.domain == "beam":
+        # if args.vol_frac_ub != 0.5:
+        #     v = f"{args.vol_frac_ub:.1f}"
+        #     args.prefix = args.prefix + ", v=" + v
 
     if args.m0_block_frac != 0.0:
         m = f"{args.m0_block_frac:.2f}"
@@ -3110,11 +3261,11 @@ def main(args):
             if args.domain == "square":
                 if args.mode == 1:
                     # node_loc=(0.75*n, 0.75*m), x direction
-                    indx = int((0.75 * n * (m+1) + 0.75 * m))
+                    indx = int((0.75 * n * (m + 1) + 0.75 * m))
                     ic(indx)
                     D_index = [2 * indx, 2 * indx + 1]
                 elif args.mode == 2:
-                    indx = int((0.67 * n * (m+1) + 0.67 * m))
+                    indx = int((0.67 * n * (m + 1) + 0.67 * m))
                     D_index = [2 * indx, 2 * indx + 1]
 
     # Create the filter

@@ -10,6 +10,7 @@ import scienceplots
 from scipy import interpolate
 from scipy.linalg import eigh, expm
 from scipy.optimize import minimize
+from icecream import ic
 
 
 class EulerBeam:
@@ -413,7 +414,62 @@ class EulerBeam:
 
         return h
 
-    def exact_eigenvector(self, x):
+    def compute_eta(self, rho, lam, lam_a, lam_b):
+        """
+        Compute the eta values
+        """
+        eta = np.zeros(len(lam))
+        for i in range(len(lam)):
+            a = np.tanh(rho * (lam[i] - lam_a))
+            b = np.tanh(rho * (lam[i] - lam_b))
+            eta[i] = a - b
+
+        return eta
+
+    def compute_lam_ab(self, lam, a, b):
+        """
+        Compute the lam_a and lam_b values
+        """
+        # lam_a = np.argmin(np.abs(lam - a)) - np.min(lam)
+        # lam_b = np.argmin(np.abs(lam - b)) + np.min(lam)
+        lam_a = np.min(lam[lam > a]) - np.min(np.abs(lam))
+        lam_b = np.max(lam[lam < b]) + np.min(np.abs(lam))
+        # lam_a = np.min(lam[lam > a])
+        # lam_b = np.max(lam[lam < b])
+        N_a = np.sum(lam < lam_a)
+        N_b = lam.shape[0] - np.sum(lam > lam_b)
+
+        return lam_a, lam_b, N_a, N_b
+
+    def compute_eta_ab(self, lam, lam_a, lam_b):
+        """
+        Compute the eta values
+        """
+        count = np.sum((lam > lam_a) & (lam < lam_b))
+        eta = 1 / count
+        return eta
+
+    def compute_h(self, eta, Q, D, n):
+        """
+        Compute the h value
+        """
+        h = 0.0
+        for i in range(n):
+            h += eta[i] * Q[:, i].T @ D @ Q[:, i]
+
+        return h
+
+    def compute_approx_h(self, eta_ab, N_a, N_b, Q, D):
+        """
+        Compute the h value
+        """
+        h = 0.0
+        for i in range(N_a, N_b):
+            h += eta_ab * Q[:, i].T @ D @ Q[:, i]
+
+        return h
+
+    def exact_eigenvector(self, x, a=0.0, b=10.0):
         """
         Compute the eigenvector constraint
 
@@ -425,12 +481,36 @@ class EulerBeam:
 
         # Compute the eigenvalues of the generalized eigen problem
         lam, Q = eigh(A, B)
+        
+        a = 10.0 * np.min(lam)
+        b = 100.0 * np.min(lam)
 
-        eta = np.exp(-self.ksrho * (lam - np.min(lam)))
-        eta = eta / np.sum(eta)
-        # h = np.trace(np.dot(np.diag(eta), np.dot(Q.T, np.dot(self.D, Q))))
-        h = np.trace(np.diag(eta) @ Q.T @ self.D @ Q)
+        lam_a, lam_b, N_a, N_b = self.compute_lam_ab(lam, a, b)
+        eta = self.compute_eta(self.ksrho, lam, lam_a, lam_b)
+        trace = np.sum(eta)
+        eta = eta / trace
+
+        h = self.compute_h(eta, Q, self.D, np.shape(A)[0])
         return h
+
+    # def exact_eigenvector(self, x):
+    #     """
+    #     Compute the eigenvector constraint
+
+    #     h = tr(eta * Q^T * D * Q)
+    #     """
+
+    #     A = self.get_stiffness_matrix(x)
+    #     B = self.get_mass_matrix(x)
+
+    #     # Compute the eigenvalues of the generalized eigen problem
+    #     lam, Q = eigh(A, B)
+
+    #     eta = np.exp(-self.ksrho * (lam - np.min(lam)))
+    #     eta = eta / np.sum(eta)
+    #     # h = np.trace(np.dot(np.diag(eta), np.dot(Q.T, np.dot(self.D, Q))))
+    #     h = np.trace(np.diag(eta) @ Q.T @ self.D @ Q)
+    #     return h
 
     def approx_eigenvector(self, x):
         lam, QN = self.solve_eigenvalue_problem(x)
@@ -443,6 +523,52 @@ class EulerBeam:
 
         return h
 
+    def approx_eigenvector_deriv(self, x, a=0.0, b=10.0):
+        """
+        Approximately compute the forward derivative
+        """
+
+        A = self.get_stiffness_matrix(x)
+        B = self.get_mass_matrix(x)
+
+        # Compute the eigenvalues of the generalized eigen problem
+        lam, Q = eigh(A, B)
+
+        a = 10.0 * np.min(lam)
+        b = 100.0 * np.min(lam)
+
+        lam_a, lam_b, N_a, N_b = self.compute_lam_ab(lam, a, b)
+
+        eta_ab = self.compute_eta_ab(lam, lam_a, lam_b)
+        h = self.compute_approx_h(eta_ab, N_a, N_b, Q, self.D)
+
+        C = B @ Q[:, N_a:N_b]
+        U, _ = np.linalg.qr(C)
+        Z = np.eye(np.shape(A)[0]) - U @ U.T
+
+        hdot = np.zeros(self.ndvs)
+
+        for i in range(N_a, N_b):
+            for j in range(N_a, N_b):
+                qDq = Q[:, i].T @ self.D @ Q[:, j]
+                qBdotq = self.get_stiffness_matrix_deriv(x, Q[:, i], Q[:, j])
+                hdot -= eta_ab * qDq * qBdotq
+
+        for i in range(N_a, N_b):
+            Dq = self.D @ Q[:, i]
+            Ak = A - lam[i] * B
+            Abar = Z.T @ Ak @ Z
+            bbar = Z.T @ (-2.0 * eta_ab * Dq)
+            phi = Z @ np.linalg.solve(Abar, bbar)
+
+            hdot += eta_ab * self.ksrho * h * self.get_stiffness_matrix_deriv(x, Q[:, i], Q[:, i])
+            hdot -= eta_ab * self.ksrho * h * lam[i] * self.get_mass_matrix_deriv(Q[:, i], Q[:, i])
+
+            hdot += self.get_stiffness_matrix_deriv(x, Q[:, i], phi)
+            hdot -= lam[i] * self.get_mass_matrix_deriv(Q[:, i], phi)
+            
+        return hdot
+
     def precise(self, rho, trace, lam_min, lam1, lam2):
         with mp.workdps(80):
             if lam1 == lam2:
@@ -450,6 +576,21 @@ class EulerBeam:
             else:
                 val = (
                     (mp.exp(-rho * (lam1 - lam_min)) - mp.exp(-rho * (lam2 - lam_min)))
+                    / (mp.mpf(lam1) - mp.mpf(lam2))
+                    / mp.mpf(trace)
+                )
+        return np.float64(val)
+
+    def preciseG(self, rho, trace, lam_min, lam1, lam2):
+        with mp.workdps(80):
+            if lam1 == lam2:
+                val = -rho * lam1 * mp.exp(-rho * (lam1 - lam_min)) / trace
+            else:
+                val = (
+                    (
+                        lam1 * mp.exp(-rho * (lam1 - lam_min))
+                        - lam2 * mp.exp(-rho * (lam2 - lam_min))
+                    )
                     / (mp.mpf(lam1) - mp.mpf(lam2))
                     / mp.mpf(trace)
                 )
@@ -495,6 +636,86 @@ class EulerBeam:
                 )
         return dfdx, E
 
+    # def approx_eigenvector_deriv(self, x):
+    #     """
+    #     Approximately compute the forward derivative
+    #     """
+
+    #     lam, QN = self.solve_eigenvalue_problem(x)
+
+    #     lam_min = np.min(lam)
+    #     eta = np.exp(-self.ksrho * (lam - lam_min))
+    #     trace = np.sum(eta)
+    #     eta = eta / trace
+
+    #     # Compute the h values
+    #     h = 0.0
+    #     for i in range(self.Np):
+    #         h += eta[i] * np.dot(QN[:, i], np.dot(self.D, QN[:, i]))
+
+    #     # Set the value of the derivative
+    #     dfdx = np.zeros(self.ndvs)
+
+    #     for j in range(self.Np):
+    #         for i in range(self.Np):
+    #             qDq = np.dot(QN[:, i], np.dot(self.D, QN[:, j]))
+    #             scalar = qDq
+    #             if i == j:
+    #                 scalar = qDq - h
+
+    #             Eij = scalar * self.precise(self.ksrho, trace, lam_min, lam[i], lam[j])
+
+    #             # Add to dfdx from A
+    #             dfdx += Eij * self.get_stiffness_matrix_deriv(x, QN[:, i], QN[:, j])
+
+    #             # Add to dfdx from B
+    #             dfdx -= Eij * lam[i] * self.get_mass_matrix_deriv(QN[:, i], QN[:, j])
+
+    #     # Get the stiffness and mass matrices
+    #     A = self.get_stiffness_matrix(x)
+    #     B = self.get_mass_matrix(x)
+
+    #     # Form the augmented linear system of equations
+    #     for k in range(self.Np):
+    #         # Compute B * uk = D * qk
+    #         bk = np.dot(self.D, QN[:, k])
+    #         uk = np.linalg.solve(B, -eta[k] * bk)
+    #         dfdx += self.get_mass_matrix_deriv(QN[:, k], uk)
+
+    #         # Solve the augmented system of equations for vk
+    #         Ak = A - lam[k] * B
+    #         Ck = np.dot(B, QN)
+
+    #         # Set up the augmented linear system of equations
+    #         mat = np.block([[Ak, Ck], [Ck.T, np.zeros((self.Np, self.Np))]])
+    #         b = np.zeros(mat.shape[0])
+
+    #         # Compute the right-hand-side vector
+    #         b[: self.ndof] = -eta[k] * bk
+
+    #         # Solve the first block linear system of equations
+    #         sol = np.linalg.solve(mat, b)
+    #         vk = sol[: self.ndof]
+
+    #         # Compute the contributions from the derivative from Adot
+    #         dfdx += 2.0 * self.get_stiffness_matrix_deriv(x, QN[:, k], vk)
+
+    #         # Add the contributions to the derivative from Bdot here...
+    #         dfdx -= lam[k] * self.get_mass_matrix_deriv(QN[:, k], vk)
+
+    #         # Now, compute the remaining contributions to the derivative from
+    #         # B by solving the second auxiliary system
+    #         dk = np.dot(A, uk)
+    #         b[: self.ndof] = dk
+
+    #         sol = np.linalg.solve(mat, b)
+    #         wk = sol[: self.ndof]
+
+    #         # Compute the contributions from the derivative
+    #         dfdx -= self.get_mass_matrix_deriv(QN[:, k], wk)
+
+    #     return dfdx
+
     def approx_eigenvector_deriv(self, x):
         """
         Approximately compute the forward derivative
@@ -523,12 +744,13 @@ class EulerBeam:
                     scalar = qDq - h
 
                 Eij = scalar * self.precise(self.ksrho, trace, lam_min, lam[i], lam[j])
+                Gij = scalar * self.preciseG(self.ksrho, trace, lam_min, lam[i], lam[j])
 
                 # Add to dfdx from A
                 dfdx += Eij * self.get_stiffness_matrix_deriv(x, QN[:, i], QN[:, j])
 
                 # Add to dfdx from B
-                dfdx -= Eij * lam[i] * self.get_mass_matrix_deriv(QN[:, i], QN[:, j])
+                dfdx -= Gij * self.get_mass_matrix_deriv(QN[:, i], QN[:, j])
 
         # Get the stiffness and mass matrices
         A = self.get_stiffness_matrix(x)
@@ -536,11 +758,6 @@ class EulerBeam:
 
         # Form the augmented linear system of equations
         for k in range(self.Np):
-            # Compute B * uk = D * qk
-            bk = np.dot(self.D, QN[:, k])
-            uk = np.linalg.solve(B, -eta[k] * bk)
-            dfdx += self.get_mass_matrix_deriv(QN[:, k], uk)
-
             # Solve the augmented system of equations for vk
             Ak = A - lam[k] * B
             Ck = np.dot(B, QN)
@@ -550,28 +767,21 @@ class EulerBeam:
             b = np.zeros(mat.shape[0])
 
             # Compute the right-hand-side vector
-            b[: self.ndof] = -eta[k] * bk
+            bk = np.dot(self.D, QN[:, k])
+            b[: self.ndof] = -2 * eta[k] * bk
 
             # Solve the first block linear system of equations
             sol = np.linalg.solve(mat, b)
-            vk = sol[: self.ndof]
+            phi = sol[: self.ndof]
 
             # Compute the contributions from the derivative from Adot
-            dfdx += 2.0 * self.get_stiffness_matrix_deriv(x, QN[:, k], vk)
+            dfdx += self.get_stiffness_matrix_deriv(x, QN[:, k], phi)
 
             # Add the contributions to the derivative from Bdot here...
-            dfdx -= lam[k] * self.get_mass_matrix_deriv(QN[:, k], vk)
-
-            # Now, compute the remaining contributions to the derivative from
-            # B by solving the second auxiliary system
-            dk = np.dot(A, uk)
-            b[: self.ndof] = dk
-
-            sol = np.linalg.solve(mat, b)
-            wk = sol[: self.ndof]
-
-            # Compute the contributions from the derivative
-            dfdx -= self.get_mass_matrix_deriv(QN[:, k], wk)
+            qDq = np.dot(QN[:, k], np.dot(self.D, QN[:, k]))
+            alpha = -2.0 * eta[k] * qDq
+            phi = 0.5 * alpha * QN[:, k] - lam[k] * phi
+            dfdx += self.get_mass_matrix_deriv(QN[:, k], phi)
 
         return dfdx
 
@@ -970,15 +1180,15 @@ class EulerBeam:
         # process the data from (Q, r) -> (dy, dz, ay, az, r_node)
         if flip_1:
             # switch first and second modes
-            Q[:, 0], Q[:, 1] = Q[:, 1], Q[:, 0].copy()
-            Q[:, 2], Q[:, 3] = Q[:, 3], Q[:, 2].copy()
+            Q[:, 0], Q[:, 1] = -Q[:, 1], -Q[:, 0].copy()
+            Q[:, 2], Q[:, 3] = -Q[:, 3], -Q[:, 2].copy()
         if flip_2:
-            Q[:, 2] = -Q[:, 2]
+            Q[:, 2] = Q[:, 2]
+            Q[:, 0], Q[:, 1] = -Q[:, 0], Q[:, 1].copy()
         if flip_3:
             # Q[:, 0], Q[:, 1] = Q[:, 1], Q[:, 0].copy()
-            Q[:, 2], Q[:, 3] = Q[:, 3], Q[:, 2].copy()
-            Q[:, 1] = -Q[:, 1]
-            Q[:, 3] = -Q[:, 3]
+            Q[:, 2], Q[:, 3] = -Q[:, 3], -Q[:, 2].copy()
+            Q[:, 0], Q[:, 1] = Q[:, 1], -Q[:, 0].copy()
 
         dy, dz, ay, az = self.process_Q(-Q[:, :n])
         dy = dy * scale
@@ -1026,17 +1236,17 @@ class EulerBeam:
                         s=2,
                         zorder=10,
                     )
-                    if i == 0:
-                        ax.text(
-                            x[0, max_index[j]] - 0.05,
-                            dy[max_index[j], i],
-                            dz[max_index[j], i],
-                            "{:.2f} m".format(
-                                dz[max_index[j], i] / scale,
-                            ),
-                            fontsize=7,
-                            zorder=10,
-                        )
+                    # if i == 0:
+                        # ax.text(
+                        #     x[0, max_index[j]] - 0.05,
+                        #     dy[max_index[j], i] + 0.005,
+                        #     dz[max_index[j], i],
+                        #     "{:.2f} m".format(
+                        #         dz[max_index[j], i] / scale,
+                        #     ),
+                        #     fontsize=7,
+                        #     zorder=10,
+                        # )
                     ax.scatter(
                         x[0, max_index[j]],
                         0,
@@ -1055,18 +1265,18 @@ class EulerBeam:
                         label="upper curvature",
                         zorder=10,
                     )
-                    if i == 2:
-                        if dz[max_index[j], i] > 0:
-                            ax.text(
-                                x[0, max_index[j]] - 0.05,
-                                dy[max_index[j], i],
-                                dz[max_index[j], i],
-                                "{:.2f} m".format(
-                                    dz[max_index[j], i] / scale,
-                                ),
-                                fontsize=7,
-                                zorder=10,
-                            )
+                    # if i == 2:
+                        # if dz[max_index[j], i] > 0:
+                        #     ax.text(
+                        #         x[0, max_index[j]] - 0.05,
+                        #         dy[max_index[j], i],
+                        #         dz[max_index[j], i],
+                        #         "{:.2f} m".format(
+                        #             dz[max_index[j], i] / scale,
+                        #         ),
+                        #         fontsize=7,
+                        #         zorder=10,
+                        #     )
 
                     ax.scatter(
                         x[0, max_index[j]],
@@ -1080,7 +1290,7 @@ class EulerBeam:
         if flip_1:
             bbox_to_anchor = (0.17, 0.43)
         elif flip_2:
-            bbox_to_anchor = (0.155, 0.43)
+            bbox_to_anchor = (0.152, 0.43)
         else:
             bbox_to_anchor = (0.158, 0.43)
         ax.legend(
@@ -1195,7 +1405,7 @@ class EulerBeam:
             1.02,
             0.0,
             0.25,
-            "$\omega_{opt, c} = 661.16$ rad/s",
+            "$\omega_{opt, c} = 656.83$ rad/s",
             horizontalalignment="right",
             verticalalignment="top",
         )
@@ -1221,7 +1431,7 @@ class EulerBeam:
         lam, QN = self.solve_eigenvalue_problem(res_x)
 
         # add zero to the beginning and end
-        dis = np.abs(QN[::4, 0])
+        dis = np.abs(QN[1::4, 0])
         dis = np.insert(dis, 0, 0)
         dis = np.append(dis, 0)
 
@@ -1276,23 +1486,23 @@ class EulerBeam:
             alpha=0.2,
         )
 
-        ax.text(
-            -0.017,
-            0.0,
-            0.125,
-            "(b)",
-            horizontalalignment="left",
-            verticalalignment="top",
-            weight="bold",
-        )
-        ax.text(
-            1.005,
-            0.0,
-            0.255,
-            "$\omega_{opt, b} = 440.57$ rad/s",
-            horizontalalignment="right",
-            verticalalignment="top",
-        )
+        # ax.text(
+        #     -0.028,
+        #     0.01,
+        #     0.12,
+        #     "(b)",
+        #     horizontalalignment="left",
+        #     verticalalignment="top",
+        #     weight="bold",
+        # )
+        # ax.text(
+        #     1.01,
+        #     0.0,
+        #     0.255,
+        #     "$\omega_{opt, b} = 527.60$ rad/s",
+        #     horizontalalignment="right",
+        #     verticalalignment="top",
+        # )
 
         ax.set_axis_off()
 
@@ -1313,7 +1523,7 @@ def colorbar(mappable, **kwargs):
     return cbar
 
 
-np.random.seed(12345)
+np.random.seed(123)
 
 
 def main(problem, finalise=False):
@@ -1366,17 +1576,17 @@ def main(problem, finalise=False):
         # sets for the beam
         set_beam = {
             "nelems": 10,
-            "ndvs": 5,
+            "ndvs": 10,
             "L": 2.0,
             "t": 0.005,  # 5 mm
-            "N": 10,
+            "N": 4,
             "ksrho": 1e-7,
             "E": 70e9,  # 70 GPa
             "density": 2710.0,  # 2710 kg/m^3
         }
 
         npts = 10
-        nlines = 12
+        nlines = 3
         res = np.zeros((npts, nlines))
 
         # Pick a direction
@@ -1385,9 +1595,12 @@ def main(problem, finalise=False):
 
         beam0 = EulerBeam(**set_beam)
         lam, Q = beam0.solve_eigenvalue_problem(x)
-        ksrho = (1.0 / lam[0]) * (10 ** np.linspace(-3, 4, npts))
-        print("omega_1 = {}".format(np.sqrt(lam[0])))
+        ksrho = (1.0 / lam[0]) * (10 ** np.linspace(5, 10, npts))
+        # print("omega_1 = {}".format(np.sqrt(lam[0])))
 
+        a = 3e+5
+        b = 3e+7
+        
         for i in range(npts):
             for j in range(2, nlines):
                 beam = EulerBeam(
@@ -1409,10 +1622,10 @@ def main(problem, finalise=False):
                 dh = 1e-30
 
                 if j == 2:
-                    res[i, 0] = np.dot(px, beam.exact_eigenvector_deriv(x)[0])
-                    res[i, 1] = beam.exact_eigenvector(x + 1j * dh * px).imag / dh
+                    # res[i, 0] = np.dot(px, beam.exact_eigenvector_deriv(x)[0])
+                    res[i, 1] = beam.exact_eigenvector(x + 1j * dh * px, a, b).imag / dh
 
-                res[i, j] = np.dot(px, beam.approx_eigenvector_deriv(x))
+                res[i, j] = np.dot(px, beam.approx_eigenvector_deriv(x,a, b))
             print(".", end="", flush=True)
         print("")
 
@@ -1422,15 +1635,15 @@ def main(problem, finalise=False):
             exact=res[:, 0],
             fd=res[:, 1],
             approx1=res[:, 2],
-            approx2=res[:, 3],
-            approx3=res[:, 4],
-            approx4=res[:, 5],
-            approx5=res[:, 6],
-            approx6=res[:, 7],
-            approx7=res[:, 8],
-            approx8=res[:, 9],
-            approx9=res[:, 10],
-            approx10=res[:, 11],
+            # approx2=res[:, 3],
+            # approx3=res[:, 4],
+            # approx4=res[:, 5],
+            # approx5=res[:, 6],
+            # approx6=res[:, 7],
+            # approx7=res[:, 8],
+            # approx8=res[:, 9],
+            # approx9=res[:, 10],
+            # approx10=res[:, 11],
         )
 
         with plt.style.context(["nature"]):
@@ -1447,8 +1660,8 @@ def main(problem, finalise=False):
                     else:
                         data = np.load("output/tube/accuracy_analysis.npz")
                     ksrho = data["ksrho"]
-                    fd = data["fd"]
-                    exact = data["exact"]
+                    exact = data["fd"]
+                    # exact = data["exact"]
                     for i in range(1, nlines - 1):
                         ax.loglog(
                             ksrho,
@@ -1501,8 +1714,8 @@ def main(problem, finalise=False):
                 data = np.load("output/tube/accuracy_analysis.npz")
                 fig, ax = plt.subplots()
                 ksrho = data["ksrho"]
-                fd = data["fd"]
-                exact = data["exact"]
+                exact = data["fd"]
+                # exact = data["exact"]
                 for i in range(1, nlines - 1):
                     ax.loglog(
                         ksrho,
@@ -1584,6 +1797,7 @@ def main(problem, finalise=False):
             # callback=lambda x: print("mass: ", (beam.get_mass(set_opt["x_con"]) - beam.get_mass(x))),
             # callback=lambda x: print("mass: ", (beam.get_mass(set_opt["x_con"]))),
         )
+        print(np.sqrt(-obj(res.x) * (519.94**2)))
 
         np.save("output/tube/optimization_eigenvalue.npy", res.x)
         res_x = np.load("output/tube/optimization_eigenvalue.npy")
@@ -1651,33 +1865,34 @@ def main(problem, finalise=False):
         }
 
         # maximun the eigenvalue
-        obj = lambda x: -beam.appox_min_eigenvalue(x) / (519.94**2)
-        obj_grad = lambda x: -beam.approx_min_eigenvalue_deriv(x) / (519.94**2)
+        obj = lambda x: -10 * beam.appox_min_eigenvalue(x) / (519.94**2)
+        obj_grad = lambda x: -10 * beam.approx_min_eigenvalue_deriv(x) / (519.94**2)
 
-        dis = lambda x: 0.8 - np.abs(beam.approx_eigenvector(x))
+        dis = lambda x: 1.0 - np.abs(beam.approx_eigenvector(x))
         dis_grad = lambda x: -beam.approx_eigenvector_deriv(x)
 
         # constrain the mass: mas(x_con) - mass(x) => 0
         mass = lambda x: (beam.get_mass(set_opt["x_con"]) - beam.get_mass(x))
         mass_grad = lambda x: -beam.get_mass_deriv()
 
-        res = minimize(
-            obj,
-            set_opt["x0"],
-            jac=obj_grad,
-            method="SLSQP",
-            bounds=[(xl, xu) for xl, xu in zip(set_opt["x_lower"], set_opt["x_upper"])],
-            constraints=(
-                {"type": "ineq", "fun": mass, "jac": mass_grad},
-                {"type": "ineq", "fun": dis, "jac": dis_grad},
-            ),
-            options={"disp": 1, "maxiter": 100, "ftol": 1e-8},
-            callback=lambda x: print("obj: %f" % obj(x)),
-            # callback=lambda x: print("displacement for midpoint: %f" % dis(x)),
-            # callback=lambda x: print("mass for midpoint: %f" % mass(x)),
-        )
+        # res = minimize(
+        #     obj,
+        #     set_opt["x0"],
+        #     jac=obj_grad,
+        #     method="SLSQP",
+        #     bounds=[(xl, xu) for xl, xu in zip(set_opt["x_lower"], set_opt["x_upper"])],
+        #     constraints=(
+        #         {"type": "ineq", "fun": mass, "jac": mass_grad},
+        #         {"type": "ineq", "fun": dis, "jac": dis_grad},
+        #     ),
+        #     options={"disp": 1, "maxiter": 100, "ftol": 1e-8},
+        #     callback=lambda x: print("obj: %f" % obj(x)),
+        #     # callback=lambda x: print("displacement for midpoint: %f" % dis(x)),
+        #     # callback=lambda x: print("mass for midpoint: %f" % mass(x)),
+        # )
+        # print(np.sqrt(-obj(res.x) * (519.94**2)))
 
-        np.save("output/tube/optimization_displacement.npy", res.x)
+        # np.save("output/tube/optimization_displacement.npy", res.x)
         res_x = np.load("output/tube/optimization_displacement.npy")
 
         with plt.style.context(["nature"]):
@@ -1688,7 +1903,7 @@ def main(problem, finalise=False):
             m = cm.ScalarMappable(cmap=cmap)
             cax = fig.add_axes(
                 [
-                    ax.get_position().x1 - 0.485,
+                    ax.get_position().x1 - 0.486,
                     ax.get_position().y0 + 0.34,
                     0.01,
                     ax.get_position().height - 0.75,
@@ -1716,7 +1931,7 @@ def main(problem, finalise=False):
                 "output/tube/optimization_displacement.png",
                 bbox_inches="tight",
                 pad_inches=0,
-                dpi=550,
+                dpi=1000,
             )
 
     elif problem == "optimization_stress":
@@ -1755,7 +1970,14 @@ def main(problem, finalise=False):
         obj = lambda x: -beam.appox_min_eigenvalue(x) / (519.94**2)
         obj_grad = lambda x: -beam.approx_min_eigenvalue_deriv(x) / (519.94**2)
 
-        stress = lambda x: 0.52 - 1e-20 * beam.eigenvector_stress(
+        # obj = lambda x: 1e-18 * beam.eigenvector_stress(
+        #     x, rho=rho, allowable=allowable
+        # )
+        # obj_grad = lambda x: 1e-18 * beam.eigenvector_stress_deriv(
+        #     x, rho=rho, allowable=allowable
+        # )
+
+        stress = lambda x: 0.5 - 1e-20 * beam.eigenvector_stress(
             x, rho=rho, allowable=allowable
         )
         stress_grad = lambda x: -1e-20 * beam.eigenvector_stress_deriv(
@@ -1782,8 +2004,9 @@ def main(problem, finalise=False):
             # callback=lambda x: print("stress constraint: ", stress(x)),
             # callback=lambda x: print("mass constraints: ", (beam.get_mass(set_opt["x_con"]))),
         )
+        print(np.sqrt(-obj(res.x) * (519.94**2)))
 
-        # save and read the result
+        # # save and read the result
         np.save("output/tube/optimization_stress.npy", res.x)
         res_x = np.load("output/tube/optimization_stress.npy")
 
@@ -1823,10 +2046,10 @@ def main(problem, finalise=False):
 if __name__ == "__main__":
     problem = [
         # "plot_E",
-        "accuracy_analysis",
-        "optimization_eigenvalue",
+        # "accuracy_analysis",
+        # "optimization_eigenvalue",
         "optimization_displacement",
-        "optimization_stress",
+        # "optimization_stress",
     ]
 
     for p in problem:
