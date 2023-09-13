@@ -36,7 +36,7 @@ def read_vol(file):
     n_iter = len(vol) // total_cols
     vol = vol.reshape(n_iter, total_cols)
     dis = vol[:, 5]
-    stress_iter = vol[:, 4] ** 0.5 * 1e-6
+    stress_iter = (vol[:, 4] ** 0.5) * 1e-6
     vol = vol[:, 2]
     ic(dis.shape, vol.shape)
     return vol, dis, stress_iter
@@ -372,10 +372,10 @@ def plot_3(omega, vol, dis, stress_iter):
     
     (p3,) = ax3.plot(dis[0][n_start:n_iter], color="k", linewidth=0.5, label="$h$")
     (p4,) = ax4.plot(
-        stress_iter[0][n_start:n_iter],
+        stress_iter[0][n_start:n_iter] ** 2,
         color="b",
         linewidth=0.5,
-        label="$\sigma_{vM}$",
+        label="$c$",
     )
 
     # add a straight line at y=0.4 for ax2
@@ -396,17 +396,17 @@ def plot_3(omega, vol, dis, stress_iter):
         linestyle="--",
         linewidth=1,
         alpha=0.25,
-        label="$h_{\mathrm{constraint}}$",
+        label="$d^2$",
     )
     p7 = ax4.axhline(
         xmin=0.04,
         xmax=0.96,
-        y=1.67332,
+        y=2.8,
         color="b",
         linestyle="--",
         linewidth=1,
         alpha=0.25,
-        label="$\sigma_{\mathrm{constraint}}$",
+        label="$\sigma_{d}^2$",
     )
 
     a = (np.abs(omega[0][n_start:n_iter, 0] - omega[0][n_start:n_iter, 1])) / (
@@ -430,8 +430,8 @@ def plot_3(omega, vol, dis, stress_iter):
         "Relative Difference $\ \\| \omega_{2} - \\omega_{1} \| / \omega_{1}$ ($\%$)"
     )
     # ax2.set(ylim=(0.16, 0.99), ylabel="Volume Fraction ($\%$)")
-    ax3.set(ylim=(0.3, 0.8), ylabel="Displacement $h \ (\mathrm{m}^2)$")
-    ax4.set(ylim=(0.0, 1.8), ylabel="von Mises Stress $\sigma_{vM} \ (\mathrm{MPa})$")
+    ax3.set(ylim=(0.3, 0.8), ylabel="Displacement Aggregate $h \ (\mathrm{m^2})$")
+    ax4.set(ylim=(0.0, 3.0), ylabel="Stress Aggregate $c \ (\mathrm{MPa^2})$")
     
     handles, labels = [], []
     handles.append(p4)
@@ -495,7 +495,7 @@ def plot_3(omega, vol, dis, stress_iter):
     
     
     fig2.savefig(
-        "final_results/mbbbeam/mbbbeam_freq_stress.pdf",
+        "../output/final_results/mbbbeam/mbbbeam_freq_stress2.pdf",
         bbox_inches="tight",
         pad_inches=0.0,
     )
@@ -620,7 +620,7 @@ if __name__ == "__main__":
     # dir_result2 = "final_results/mbbbeam/nx=800, vol=0.5, dis=0.4, mode=2, s=2800000000000.0, r0=2.1, K=simp, M=linear/"
     # dir_result3 = "final_results/mbbbeam/nx=800, vol=0.5, dis=0.3, mode=2, s=2800000000000.0, r0=2.1, K=simp, M=linear/"
     
-    rho, _, _,_, stress, omega, phi0, phi1, phi2, phi3, phi4, phi5 = assmble_data(3, 500)
+    # rho, _, _,_, stress, omega, phi0, phi1, phi2, phi3, phi4, phi5 = assmble_data(3, 500)
     
     # omegas = np.array([omega[0][500, 0], omega[0][500, 1], omega[0][500, 2], omega[0][500, 3], omega[0][500, 4], omega[0][500, 5]])
     # ic(omegas)
@@ -634,9 +634,9 @@ if __name__ == "__main__":
     # ic(q)
     # ic(np.dot(eta, q**2))
     
-    with plt.style.context(["nature"]):
-        plot_4(3, rho, stress, phi0, phi1, phi2)
-        plt.savefig("../output/final_results/mbbbeam/mbbbeam_stress_new_17.png", bbox_inches="tight", dpi=500, pad_inches=0.0)
+    # with plt.style.context(["nature"]):
+    #     plot_4(3, rho, stress, phi0, phi1, phi2)
+    #     plt.savefig("../output/final_results/mbbbeam/mbbbeam_stress_new_17.png", bbox_inches="tight", dpi=500, pad_inches=0.0)
         
     dir_result1 = "../output/final_results/mbbbeam/nx=800, vol=0.5, dis=0.5, mode=2, s=2800000000000.0, r0=2.1, K=simp, M=linear/"
     dir_result2 = "../output/final_results/mbbbeam/nx=800, vol=0.5, dis=0.4, mode=2, s=2800000000000.0, r0=2.1, K=simp, M=linear/"

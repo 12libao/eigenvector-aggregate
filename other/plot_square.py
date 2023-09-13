@@ -1156,24 +1156,24 @@ def plot_7(rho, dis, vol, stress_iter, stress, omega, phi0):
                 linestyle="--",
                 linewidth=1,
                 alpha=0.25,
-                label="$h_{\mathrm{constraint}}$",
+                label="$d^2$",
             )
         else:
             (p3,) = ax3.plot(
-                stress_iter[1][n_start:n_iter],
+                stress_iter[1][n_start:n_iter] ** 2.0,
                 color="b",
                 linewidth=0.5,
-                label="$\sigma_{vM}$",
+                label="$c$",
             )
             p5 = ax3.axhline(
                 xmin=0.04,
                 xmax=0.96,
-                y=np.sqrt(3.6),
+                y=3.6,
                 color="b",
                 linestyle="--",
                 linewidth=1,
                 alpha=0.25,
-                label="$\sigma_{\mathrm{constraint}}$",
+                label="$\sigma_{d}^2$",
             )
 
         p4 = ax2.axhline(
@@ -1184,7 +1184,7 @@ def plot_7(rho, dis, vol, stress_iter, stress, omega, phi0):
             linestyle="--",
             linewidth=1,
             alpha=0.25,
-            label="$V_{\mathrm{constraint}}$",
+            label="$V_{0}$",
         )
 
         ax.set(yscale="log", ylim=(1e-15, 0.9e3), xlabel="Iteration")
@@ -1196,12 +1196,12 @@ def plot_7(rho, dis, vol, stress_iter, stress, omega, phi0):
         if n == 0:
             ax3.set(
                 ylim=(-0.2, 6.0),
-                ylabel="Displacement $h \ (\mathrm{m}^2) \\times 10^{-2}$",
+                ylabel="Displacement Aggregate $h \ (\mathrm{m^2}) \\times 10^{-2}$",
             )
         else:
             ax3.set(
-                ylim=(0.01, 2.05),
-                ylabel="von Mises Stress $\sigma_{vM} \ (\mathrm{MPa})$",
+                ylim=(0.01, 4.0),
+                ylabel="Stress Aggregate $c \ (\mathrm{MPa^2})$",
             )
 
         handles, labels = [], []
@@ -1220,7 +1220,7 @@ def plot_7(rho, dis, vol, stress_iter, stress, omega, phi0):
             handles,
             labels,
             ncol=1,
-            loc=[0.52, 0.42],
+            loc=[0.52, 0.38],
             frameon=False,
         )
 
@@ -1473,53 +1473,53 @@ if __name__ == "__main__":
     #     "final_results/square/stress/nx=500, vol=0.4, s=4000000000000.0, r0=2.1, K=simp, M=msimp/"
     # )
 
-    dir_result1 = "../output/final_results/square/baseline/"
-    dir_result2 = "../output/final_results/square/p, d=0.054/"
-    dir_result3 = "../output/final_results/square/p, d=0.040/"
-    dir_result4 = "../output/final_results/square/p, d=0.034/"
-    dir_result5 = "../output/final_results/square/p, s=3.9/"
-    dir_result6 = "../output/final_results/square/p, s=3.6/"
-    dir_result7 = "../output/final_results/square/p, s=3.5/"
-    (
-        rho,
-        vol,
-        dis,
-        stress_iter,
-        stress,
-        omega,
-        phi0,
-        phi1,
-        phi2,
-        phi3,
-        phi4,
-        phi5,
-    ) = assmble_data(7, 1000, 1000, 880, 1000, 600, 980, 1000)
+    # dir_result1 = "../output/final_results/square/baseline/"
+    # dir_result2 = "../output/final_results/square/p, d=0.054/"
+    # dir_result3 = "../output/final_results/square/p, d=0.040/"
+    # dir_result4 = "../output/final_results/square/p, d=0.034/"
+    # dir_result5 = "../output/final_results/square/p, s=3.9/"
+    # dir_result6 = "../output/final_results/square/p, s=3.6/"
+    # dir_result7 = "../output/final_results/square/p, s=3.5/"
+    # (
+    #     rho,
+    #     vol,
+    #     dis,
+    #     stress_iter,
+    #     stress,
+    #     omega,
+    #     phi0,
+    #     phi1,
+    #     phi2,
+    #     phi3,
+    #     phi4,
+    #     phi5,
+    # ) = assmble_data(7, 1000, 1000, 880, 1000, 600, 980, 1000)
 
-    omegas = np.array(
-        [
-            omega[1][400, 0],
-            omega[1][400, 1],
-            omega[1][400, 2],
-            omega[1][400, 3],
-            omega[1][400, 4],
-            omega[1][400, 5],
-        ]
-    )
-    ic(omegas)
-    ks_rho = 100
-    eta = np.exp(-ks_rho * (omegas - omegas[0]))
-    a = np.sum(eta)
-    eta = eta / a
-    ic(eta)
-    a = (21.43 + 100 + 87.5 + 100) * 0.06
-    b = (42 + 97 + 100 + 90 + 67 + 92) * 0.08 * 7 / 6
-    c = 0.2 * 70
-    ic(a + b + c)
+    # omegas = np.array(
+    #     [
+    #         omega[1][400, 0],
+    #         omega[1][400, 1],
+    #         omega[1][400, 2],
+    #         omega[1][400, 3],
+    #         omega[1][400, 4],
+    #         omega[1][400, 5],
+    #     ]
+    # )
+    # ic(omegas)
+    # ks_rho = 100
+    # eta = np.exp(-ks_rho * (omegas - omegas[0]))
+    # a = np.sum(eta)
+    # eta = eta / a
+    # ic(eta)
+    # a = (21.43 + 100 + 87.5 + 100) * 0.06
+    # b = (42 + 97 + 100 + 90 + 67 + 92) * 0.08 * 7 / 6
+    # c = 0.2 * 70
+    # ic(a + b + c)
 
-    ic((0.215664**2 + 0.0979138**2) * 0.5 + (0.0727259**2 + 0.205458**2) * 0.5)
+    # ic((0.215664**2 + 0.0979138**2) * 0.5 + (0.0727259**2 + 0.205458**2) * 0.5)
 
-    with plt.style.context(["nature"]):
-        plot_6(rho, dis, vol, stress_iter, stress, omega, phi0)
+    # with plt.style.context(["nature"]):
+    #     plot_6(rho, dis, vol, stress_iter, stress, omega, phi0)
 
     dir_result1 = "../output/final_results/square/p, d=0.054/"
     dir_result2 = "../output/final_results/square/p, s=3.6/"
